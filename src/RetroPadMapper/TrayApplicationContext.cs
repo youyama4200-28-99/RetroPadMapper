@@ -19,6 +19,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _tray.DoubleClick += (_, _) => ShowWindow();
         if (!_controller.Start())
             MessageBox.Show($"SDL3の初期化に失敗しました: {SdlNative.Utf8(SdlNative.GetError())}", "RetroPad Mapper", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        _form.ApplyStartupIndicator();
         var minimized = settings.StartMinimized || Environment.GetCommandLineArgs().Contains("--minimized");
         if (!minimized) ShowWindow();
     }

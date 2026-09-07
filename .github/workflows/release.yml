@@ -22,8 +22,11 @@ jobs:
           if ($selfTest.ExitCode -ne 0) { exit $selfTest.ExitCode }
           $benchmark = Start-Process 'artifacts/RetroPadMapper-win-x64/RetroPadMapper.exe' -ArgumentList '--benchmark','artifacts/benchmark-release' -Wait -PassThru
           if ($benchmark.ExitCode -ne 0) { exit $benchmark.ExitCode }
+          $ui = Start-Process 'artifacts/RetroPadMapper-win-x64/RetroPadMapper.exe' -ArgumentList '--ui-snapshot','artifacts/ui-snapshot-release' -Wait -PassThru
+          if ($ui.ExitCode -ne 0) { exit $ui.ExitCode }
           Copy-Item LICENSE,THIRD_PARTY_NOTICES.md,README.md artifacts/RetroPadMapper-win-x64/
           Copy-Item -Recurse artifacts/benchmark-release artifacts/RetroPadMapper-win-x64/benchmark-evidence
+          Copy-Item -Recurse artifacts/ui-snapshot-release artifacts/RetroPadMapper-win-x64/ui-preview
       - shell: pwsh
         run: Compress-Archive artifacts/RetroPadMapper-win-x64/* artifacts/RetroPadMapper-win-x64.zip
       - uses: softprops/action-gh-release@v2

@@ -7,11 +7,14 @@ Nintendo Switch Online向けのファミコン／NES系Bluetoothコントロー�
 ## 主な機能
 
 - Bluetooth接続したコントローラーを自動検出（NES / Famicom / Nintendo名を優先）
+- 接続中の複数コントローラーから使用する1台を選択し、選択を保存
+- 登録済みBluetooth機器への短時間の再探索と15秒間の高速再検出による再接続支援
 - 十字キー、A/B/X/Y、START/SELECT、L/R、HOMEを任意のキーへ割り当て
 - 左・右・中クリック、ホイールへの割り当て
 - タスクトレイ常駐、切断時の押しっぱなし防止
 - SDL3のタイムスタンプ付きイベントを受けて即時出力（固定間隔ポーリングなし）
 - 実機利用中のSDLイベント→処理開始／出力呼び出し時間を画面に表示
+- ファミコン型のキーマップ／押下インジケータ（表示・常時最前面を個別設定）
 - HKCUを使った管理者権限不要の自動起動
 - 設定を `%APPDATA%\RetroPadMapper\settings.json` に自動保存
 
@@ -21,6 +24,8 @@ Nintendo Switch Online向けのファミコン／NES系Bluetoothコントロー�
 2. `RetroPadMapper.exe` を起動します。
 3. 画面で各ボタンの出力を選びます。
 4. 必要なら「Windowsログイン時に自動起動」をオンにします。
+
+複数のゲームパッドがある場合は「使用する機器」から選択できます。登録済みのファミコンコントローラーがスリープ後に戻らない場合は、「再接続を試す」を押してからHOMEまたはSTARTを1秒ほど押してください。アプリはバックグラウンドでWindowsの短時間Bluetooth探索を行い、SDL側を15秒間250ms間隔で再検出します。ペアリング情報やBluetoothサービス構成は変更しません。それでも戻らない場合は、画面内のリンクからWindowsのBluetooth設定を開いて再登録してください。
 
 ウィンドウを閉じても終了せず、タスクトレイに残ります。終了はトレイアイコンの右クリックメニューから行います。
 
@@ -54,6 +59,8 @@ RetroPadMapper.exe --benchmark benchmarks/latest
 ```
 
 このリポジトリで記録した結果と生データは [benchmarks/latest/RESULTS.md](benchmarks/latest/RESULTS.md) と [benchmarks/latest/latency-samples.csv](benchmarks/latest/latency-samples.csv) にあります。この試験が実証するのはアプリ内の起床・ディスパッチ遅延の差です。Bluetooth無線、コントローラーのファームウェア、SDL HIDバックエンド内部、ゲーム側の入力取得周期を含むエンドツーエンド遅延は主張しません。
+
+インジケータはイベントコールバックで描画しません。入力側は押下ビットを原子的に更新するだけで、別のWinFormsタイマーが約60Hzでスナップショットを表示します。コントローラー列挙とBluetooth再探索も低優先度バックグラウンド処理に分離しています。
 
 ## OSSとライセンス
 

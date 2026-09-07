@@ -8,7 +8,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>RetroPadMapper</AssemblyName>
     <RootNamespace>RetroPadMapper</RootNamespace>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Authors>RetroPad Mapper contributors</Authors>
     <Description>Map Bluetooth retro controllers to keyboard and mouse input on Windows.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

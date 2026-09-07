@@ -47,6 +47,18 @@ internal static partial class SdlNative
     [LibraryImport("SDL3", EntryPoint = "SDL_GetGamepadName")]
     internal static partial nint GetGamepadName(nint gamepad);
 
+    [LibraryImport("SDL3", EntryPoint = "SDL_GetGamepadNameForID")]
+    internal static partial nint GetGamepadNameForId(uint instanceId);
+
+    [LibraryImport("SDL3", EntryPoint = "SDL_GetGamepadPathForID")]
+    internal static partial nint GetGamepadPathForId(uint instanceId);
+
+    [LibraryImport("SDL3", EntryPoint = "SDL_GetGamepadVendorForID")]
+    internal static partial ushort GetGamepadVendorForId(uint instanceId);
+
+    [LibraryImport("SDL3", EntryPoint = "SDL_GetGamepadProductForID")]
+    internal static partial ushort GetGamepadProductForId(uint instanceId);
+
     [LibraryImport("SDL3", EntryPoint = "SDL_GetGamepadButton")]
     [return: MarshalAs(UnmanagedType.I1)]
     internal static partial bool GetGamepadButton(nint gamepad, int button);

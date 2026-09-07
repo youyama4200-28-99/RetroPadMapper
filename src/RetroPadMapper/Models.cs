@@ -16,11 +16,20 @@ internal sealed record OutputBinding(OutputKind Kind, int Code, string Label)
     public override string ToString() => Label;
 }
 
+internal sealed record ControllerOption(string Id, uint InstanceId, string Name)
+{
+    public override string ToString() => Name;
+}
+
 internal sealed class AppSettings
 {
     public bool MappingEnabled { get; set; } = true;
     public bool StartMinimized { get; set; }
     public string PreferredController { get; set; } = "";
+    public bool ShowIndicator { get; set; } = true;
+    public bool IndicatorTopMost { get; set; }
+    public int IndicatorX { get; set; } = -1;
+    public int IndicatorY { get; set; } = -1;
     public Dictionary<PadButton, OutputBinding> Bindings { get; set; } = Defaults();
 
     public static Dictionary<PadButton, OutputBinding> Defaults() => new()

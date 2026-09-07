@@ -23,4 +23,6 @@ jobs:
           $selfTest = Start-Process $exe -ArgumentList '--self-test' -Wait -PassThru
           if ($selfTest.ExitCode -ne 0) { exit $selfTest.ExitCode }
           $benchmark = Start-Process $exe -ArgumentList '--benchmark','artifacts/benchmark-ci' -Wait -PassThru
-          exit $benchmark.ExitCode
+          if ($benchmark.ExitCode -ne 0) { exit $benchmark.ExitCode }
+          $ui = Start-Process $exe -ArgumentList '--ui-snapshot','artifacts/ui-snapshot-ci' -Wait -PassThru
+          exit $ui.ExitCode
