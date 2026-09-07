@@ -10,6 +10,8 @@ Nintendo Switch Online向けのファミコン／NES系Bluetoothコントロー�
 - 十字キー、A/B/X/Y、START/SELECT、L/R、HOMEを任意のキーへ割り当て
 - 左・右・中クリック、ホイールへの割り当て
 - タスクトレイ常駐、切断時の押しっぱなし防止
+- SDL3のタイムスタンプ付きイベントを受けて即時出力（固定間隔ポーリングなし）
+- 実機利用中のSDLイベント→処理開始／出力呼び出し時間を画面に表示
 - HKCUを使った管理者権限不要の自動起動
 - 設定を `%APPDATA%\RetroPadMapper\settings.json` に自動保存
 
@@ -40,6 +42,18 @@ dotnet publish src/RetroPadMapper/RetroPadMapper.csproj -c Release -r win-x64 --
 ```
 
 公開フォルダー一式を配布してください（SDL3.dllを含むため、exeだけを抜き出さないでください）。
+
+## 入力遅延の検証
+
+v0.1.0の入力処理は8msごとに状態を読む方式で、その周期だけで0〜8msの待ちが追加され得ました。v0.2.0はSDL3のタイムスタンプ付きゲームパッドイベントをスレッドセーフなイベントウォッチで直接処理し、接続検出だけを低頻度ループに分離しています。
+
+再現可能なA/Bベンチマークは、同じ5,000件のタイムスタンプ付き入力列を旧8msポーリングとイベント通知へ同時に投入します。両方が全件取得し、イベント側のp95が旧方式より小さい場合だけ成功終了します。
+
+```powershell
+RetroPadMapper.exe --benchmark benchmarks/latest
+```
+
+このリポジトリで記録した結果と生データは [benchmarks/latest/RESULTS.md](benchmarks/latest/RESULTS.md) と [benchmarks/latest/latency-samples.csv](benchmarks/latest/latency-samples.csv) にあります。この試験が実証するのはアプリ内の起床・ディスパッチ遅延の差です。Bluetooth無線、コントローラーのファームウェア、SDL HIDバックエンド内部、ゲーム側の入力取得周期を含むエンドツーエンド遅延は主張しません。
 
 ## OSSとライセンス
 

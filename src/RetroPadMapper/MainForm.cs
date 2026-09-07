@@ -6,10 +6,12 @@ internal sealed class MainForm : Form
     private readonly SettingsStore _store;
     private readonly ControllerService _controller;
     private readonly Label _status = new();
+    private readonly Label _latency = new();
     private readonly CheckBox _enabled = new();
     private readonly CheckBox _autoStart = new();
     private readonly TableLayoutPanel _table = new();
     private bool _reallyClose;
+    private readonly System.Windows.Forms.Timer _latencyTimer = new() { Interval = 1000 };
 
     public MainForm(AppSettings settings, SettingsStore store, ControllerService controller)
     {
@@ -20,17 +22,20 @@ internal sealed class MainForm : Form
         BuildUi();
         _controller.StatusChanged += name => BeginInvoke(() => SetStatus(name));
         SetStatus(_controller.ControllerName);
+        _latencyTimer.Tick += (_, _) => _latency.Text = _controller.LatencySummary;
+        _latencyTimer.Start();
         FormClosing += OnFormClosing;
     }
 
     private void BuildUi()
     {
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), RowCount = 6, ColumnCount = 1 };
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(18), RowCount = 7, ColumnCount = 1 };
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         var title = new Label { Text = "RetroPad Mapper", Font = new Font(Font.FontFamily, 18, FontStyle.Bold), AutoSize = true };
         _status.AutoSize = true; _status.Padding = new Padding(0, 5, 0, 12);
+        _latency.AutoSize = true; _latency.ForeColor = SystemColors.GrayText; _latency.Text = _controller.LatencySummary;
         _enabled.Text = "マッピングを有効にする"; _enabled.AutoSize = true; _enabled.Checked = _settings.MappingEnabled;
         _enabled.CheckedChanged += (_, _) => { _settings.MappingEnabled = _enabled.Checked; ApplyAndSave(); };
         _table.Dock = DockStyle.Fill; _table.AutoScroll = true; _table.ColumnCount = 2;
@@ -40,7 +45,7 @@ internal sealed class MainForm : Form
         _autoStart.Text = "Windowsログイン時に自動起動"; _autoStart.AutoSize = true; _autoStart.Checked = AutoStartService.IsEnabled();
         _autoStart.CheckedChanged += (_, _) => { try { AutoStartService.SetEnabled(_autoStart.Checked); } catch (Exception ex) { MessageBox.Show(ex.Message, "自動起動の設定に失敗", MessageBoxButtons.OK, MessageBoxIcon.Error); } };
         var hint = new Label { Text = "閉じるとタスクトレイに常駐します。変更は自動保存されます。", AutoSize = true, ForeColor = SystemColors.GrayText, Padding = new Padding(0, 8, 0, 0) };
-        root.Controls.Add(title); root.Controls.Add(_status); root.Controls.Add(_enabled); root.Controls.Add(_table); root.Controls.Add(_autoStart); root.Controls.Add(hint);
+        root.Controls.Add(title); root.Controls.Add(_status); root.Controls.Add(_latency); root.Controls.Add(_enabled); root.Controls.Add(_table); root.Controls.Add(_autoStart); root.Controls.Add(hint);
         Controls.Add(root);
     }
 

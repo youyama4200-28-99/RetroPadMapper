@@ -5,6 +5,25 @@ namespace RetroPadMapper;
 internal static partial class SdlNative
 {
     internal const uint InitGamepad = 0x00002000;
+    internal const uint EventGamepadAxisMotion = 0x650;
+    internal const uint EventGamepadButtonDown = 0x651;
+    internal const uint EventGamepadButtonUp = 0x652;
+    internal const uint EventGamepadAdded = 0x653;
+    internal const uint EventGamepadRemoved = 0x654;
+
+    [StructLayout(LayoutKind.Explicit, Size = 128)]
+    internal struct SdlEvent
+    {
+        [FieldOffset(0)] internal uint Type;
+        [FieldOffset(8)] internal ulong Timestamp;
+        [FieldOffset(16)] internal uint Which;
+        [FieldOffset(20)] internal byte Button;
+        [FieldOffset(21)] internal byte Down;
+    }
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    internal unsafe delegate bool EventFilter(nint userdata, SdlEvent* evt);
 
     [LibraryImport("SDL3", EntryPoint = "SDL_Init")]
     [return: MarshalAs(UnmanagedType.I1)]
@@ -18,6 +37,9 @@ internal static partial class SdlNative
 
     [LibraryImport("SDL3", EntryPoint = "SDL_OpenGamepad")]
     internal static partial nint OpenGamepad(uint instanceId);
+
+    [LibraryImport("SDL3", EntryPoint = "SDL_GetGamepadID")]
+    internal static partial uint GetGamepadId(nint gamepad);
 
     [LibraryImport("SDL3", EntryPoint = "SDL_CloseGamepad")]
     internal static partial void CloseGamepad(nint gamepad);
@@ -35,6 +57,19 @@ internal static partial class SdlNative
 
     [LibraryImport("SDL3", EntryPoint = "SDL_UpdateGamepads")]
     internal static partial void UpdateGamepads();
+
+    [LibraryImport("SDL3", EntryPoint = "SDL_SetGamepadEventsEnabled")]
+    internal static partial void SetGamepadEventsEnabled([MarshalAs(UnmanagedType.I1)] bool enabled);
+
+    [LibraryImport("SDL3", EntryPoint = "SDL_GetTicksNS")]
+    internal static partial ulong GetTicksNs();
+
+    [DllImport("SDL3", EntryPoint = "SDL_AddEventWatch", CallingConvention = CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    internal static extern bool AddEventWatch(EventFilter filter, nint userdata);
+
+    [DllImport("SDL3", EntryPoint = "SDL_RemoveEventWatch", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern void RemoveEventWatch(EventFilter filter, nint userdata);
 
     [LibraryImport("SDL3", EntryPoint = "SDL_free")]
     internal static partial void Free(nint memory);

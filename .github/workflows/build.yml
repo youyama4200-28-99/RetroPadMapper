@@ -17,3 +17,10 @@ jobs:
           dotnet-version: 8.0.x
       - run: dotnet restore -r win-x64 --locked-mode
       - run: dotnet build src/RetroPadMapper/RetroPadMapper.csproj -c Release -r win-x64 --no-restore
+      - shell: pwsh
+        run: |
+          $exe = 'src/RetroPadMapper/bin/Release/net8.0-windows/win-x64/RetroPadMapper.exe'
+          $selfTest = Start-Process $exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($selfTest.ExitCode -ne 0) { exit $selfTest.ExitCode }
+          $benchmark = Start-Process $exe -ArgumentList '--benchmark','artifacts/benchmark-ci' -Wait -PassThru
+          exit $benchmark.ExitCode
