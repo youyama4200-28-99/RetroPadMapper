@@ -220,6 +220,7 @@ internal sealed unsafe class ControllerService : IDisposable
     private static bool IsRetroNintendo(string name) =>
         name.Contains("NES", StringComparison.OrdinalIgnoreCase) ||
         name.Contains("Famicom", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("HVC Controller", StringComparison.OrdinalIgnoreCase) ||
         name.Contains("Nintendo", StringComparison.OrdinalIgnoreCase);
 
     private void Connect(nint gamepad, ControllerOption option)

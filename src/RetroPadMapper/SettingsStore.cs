@@ -38,7 +38,8 @@ internal sealed class SettingsStore
         if (extension is not (".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif"))
             throw new InvalidOperationException("PNG、JPEG、BMP、GIF画像を選択してください。");
         var destination = Path.Combine(directory, "indicator-custom" + extension);
-        File.Copy(sourcePath, destination, true);
+        if (!Path.GetFullPath(sourcePath).Equals(Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase))
+            File.Copy(sourcePath, destination, true);
         return destination;
     }
 }

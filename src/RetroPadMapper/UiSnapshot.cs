@@ -32,6 +32,16 @@ internal static class UiSnapshot
                 form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
                 bitmap.Save(Path.Combine(outputDirectory, "display-settings.png"));
             }
+            var customImagePath = Path.Combine(outputDirectory, "custom-image-sample.png");
+            using (var sample = new Bitmap(480, 160))
+            using (var graphics = Graphics.FromImage(sample))
+            {
+                graphics.Clear(Color.FromArgb(30, 65, 95));
+                using var font = new Font("Segoe UI", 24, FontStyle.Bold);
+                graphics.DrawString("CUSTOM IMAGE", font, Brushes.White, 115, 55);
+                sample.Save(customImagePath);
+            }
+            settings.IndicatorImagePath = customImagePath;
             using var indicator = new FamicomIndicatorControl(controller, settings) { Size = new Size(680, 300) };
             indicator.CreateControl();
             foreach (var style in Enum.GetValues<IndicatorStyle>())

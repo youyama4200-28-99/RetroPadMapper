@@ -18,7 +18,7 @@ internal static unsafe class SelfTest
             if (!System.Runtime.InteropServices.NativeLibrary.TryLoad("SDL3", out var sdl)) return 7;
             try
             {
-                var exports = new[] { "SDL_GetGamepadNameForID", "SDL_GetGamepadPathForID", "SDL_GetGamepadVendorForID", "SDL_GetGamepadProductForID" };
+                var exports = new[] { "SDL_GetGamepadNameForID", "SDL_GetGamepadPathForID", "SDL_GetGamepadVendorForID", "SDL_GetGamepadProductForID", "SDL_PumpEvents" };
                 if (exports.Any(name => !System.Runtime.InteropServices.NativeLibrary.TryGetExport(sdl, name, out _))) return 8;
             }
             finally { System.Runtime.InteropServices.NativeLibrary.Free(sdl); }
