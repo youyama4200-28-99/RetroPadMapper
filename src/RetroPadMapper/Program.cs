@@ -5,6 +5,8 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Contains("--diagnostic-self-test"))
+            return DiagnosticSelfTest.Run();
         if (args.Contains("--self-test"))
             return SelfTest.Run();
         if (args.Contains("--bluetooth-probe"))

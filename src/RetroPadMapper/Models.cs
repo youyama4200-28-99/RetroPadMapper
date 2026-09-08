@@ -19,6 +19,8 @@ internal sealed record OutputBinding(OutputKind Kind, int Code, string Label)
 
 internal sealed record ControllerOption(string Id, uint InstanceId, string Name)
 {
+    public ushort VendorId { get; init; }
+    public ushort ProductId { get; init; }
     public override string ToString() => Name;
 }
 

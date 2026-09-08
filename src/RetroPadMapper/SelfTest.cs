@@ -8,6 +8,8 @@ internal static unsafe class SelfTest
     {
         try
         {
+            var diagnosticResult = DiagnosticSelfTest.Run();
+            if (diagnosticResult != 0) return diagnosticResult;
             var original = new AppSettings();
             original.DebugMode = true;
             var json = JsonSerializer.Serialize(original, SettingsJsonContext.Default.AppSettings);

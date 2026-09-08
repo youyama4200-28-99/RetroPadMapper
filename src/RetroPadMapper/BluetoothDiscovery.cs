@@ -22,11 +22,28 @@ internal static class BluetoothDiscovery
             TimeoutMultiplier = 2,
         };
         var device = new DeviceInfo { Size = Marshal.SizeOf<DeviceInfo>(), Name = string.Empty };
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (AppLog.Enabled) AppLog.Debug("bluetooth-probe begin inquiry=true timeout_multiplier=2 all_radios=true; not_a_connect_request");
         var find = FindFirstDevice(ref search, ref device);
-        if (find == 0) return;
+        if (find == 0)
+        {
+            var error = Marshal.GetLastWin32Error();
+            AppLog.Debug($"bluetooth-probe first_result=none win32={error} duration_ms={ConnectionDiagnostics.Milliseconds(System.Diagnostics.Stopwatch.GetTimestamp() - started):F3}");
+            return;
+        }
+        var count = 0;
         try
         {
-            while (FindNextDevice(find, ref device)) device.Size = Marshal.SizeOf<DeviceInfo>();
+            do
+            {
+                count++;
+                if (AppLog.Enabled)
+                    AppLog.Debug($"bluetooth-device name={device.Name} address={device.Address:X12} remembered={device.Remembered} authenticated={device.Authenticated} connected={device.Connected}; flags_not_input_confirmation");
+                device = new DeviceInfo { Size = Marshal.SizeOf<DeviceInfo>(), Name = string.Empty };
+            } while (FindNextDevice(find, ref device));
+            var error = Marshal.GetLastWin32Error();
+            if (AppLog.Enabled)
+                AppLog.Debug($"bluetooth-probe end count={count} terminal_win32={error} duration_ms={ConnectionDiagnostics.Milliseconds(System.Diagnostics.Stopwatch.GetTimestamp() - started):F3}; ERROR_NO_MORE_ITEMS=259");
         }
         finally { FindDeviceClose(find); }
     }

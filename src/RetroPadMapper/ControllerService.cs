@@ -10,6 +10,8 @@ internal sealed unsafe class ControllerService : IDisposable
 
     private readonly InputEmitter _emitter = new();
     private readonly LatencyRecorder _latency = new();
+    private readonly ConnectionDiagnostics _diagnostics = new() { OutputMode = "KeyboardMouse" };
+    private long _openAttempt;
     private readonly CancellationTokenSource _stop = new();
     private readonly AutoResetEvent _scanSignal = new(false);
     private readonly object _gate = new();
@@ -55,9 +57,11 @@ internal sealed unsafe class ControllerService : IDisposable
 
     public void Configure(AppSettings settings)
     {
+        if (AppLog.Enabled) AppLog.Debug($"configure mapping_enabled={settings.MappingEnabled} preferred={settings.PreferredController}");
         lock (_gate)
         {
             _enabled = settings.MappingEnabled;
+            _diagnostics.MappingEnabled = settings.MappingEnabled;
             _bindings = new(settings.Bindings);
             if (!_enabled) _emitter.ReleaseAll();
             if (_preferredController == settings.PreferredController) return;
@@ -70,6 +74,7 @@ internal sealed unsafe class ControllerService : IDisposable
 
     public void SelectController(string id)
     {
+        if (AppLog.Enabled) AppLog.Debug($"user-selection preferred={id}");
         lock (_gate)
         {
             _preferredController = id;
@@ -85,16 +90,24 @@ internal sealed unsafe class ControllerService : IDisposable
     public void PumpHotplugEvents()
     {
         if (_disposed || _loop is null) return;
+        _diagnostics.PumpStarted();
+        var pumpStarted = AppLog.Enabled ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
         var changed = false;
         while (SdlNative.PollEvent(out var evt))
         {
             if (IsHotplugEvent(evt.Type))
             {
                 changed = true;
-                AppLog.Debug($"SDL device event type=0x{evt.Type:X} instance={evt.Which}");
+                if (AppLog.Enabled)
+                    AppLog.Debug($"SDL device event type=0x{evt.Type:X} instance={evt.Which} native_ns={evt.Timestamp} age_ms={ConnectionDiagnostics.EventAge(evt.Timestamp, SdlNative.GetTicksNs())}; timestamp_is_sdl_not_radio");
             }
         }
         if (changed) _scanSignal.Set();
+        if (pumpStarted != 0)
+        {
+            var ms = ConnectionDiagnostics.Milliseconds(System.Diagnostics.Stopwatch.GetTimestamp() - pumpStarted);
+            if (ms >= 50) AppLog.Debug($"ui-pump slow_ms={ms:F3}");
+        }
     }
 
     public Task RequestReconnectAsync()
@@ -103,7 +116,7 @@ internal sealed unsafe class ControllerService : IDisposable
         Volatile.Write(ref _reconnectUntilUtcTicks, DateTime.UtcNow.AddSeconds(15).Ticks);
         Interlocked.Exchange(ref _reconnectCompletionSent, 0);
         ReconnectStateChanged?.Invoke("再接続待機中 — コントローラーのボタンを1秒ほど押してください");
-        AppLog.Info("reconnect requested");
+        AppLog.Info($"reconnect requested preferred={_preferredController}; success_currently_means_handle_open_not_input");
         _scanSignal.Set();
         return Task.Run(() =>
         {
@@ -155,10 +168,13 @@ internal sealed unsafe class ControllerService : IDisposable
 
     private bool PollGamepad()
     {
+        var diagnosticStarted = _diagnostics.BeginPoll();
         lock (_gate)
         {
             if (_gamepad == 0) return false;
+            var updateStarted = _diagnostics.LockAcquired(diagnosticStarted);
             SdlNative.UpdateGamepads();
+            _diagnostics.Updated(updateStarted);
             if (!SdlNative.GamepadConnected(_gamepad))
             {
                 DisconnectLocked();
@@ -170,6 +186,7 @@ internal sealed unsafe class ControllerService : IDisposable
             foreach (var button in InputButtons)
                 if (SdlNative.GetGamepadButton(_gamepad, (int)button)) nextMask |= 1 << (int)button;
 
+            _diagnostics.Sample(nextMask, _instanceId);
             var previousMask = Volatile.Read(ref _pressedButtons);
             var changed = previousMask ^ nextMask;
             if (changed == 0) return true;
@@ -190,11 +207,14 @@ internal sealed unsafe class ControllerService : IDisposable
 
     private unsafe void Scan()
     {
+        var scanStarted = AppLog.Enabled ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
         SdlNative.UpdateGamepads();
         var ids = SdlNative.GetGamepads(out var count);
         if (ids == 0)
         {
+            AppLog.Error($"enumeration failed SDL_GetGamepads: {SdlNative.Utf8(SdlNative.GetError())}");
             UpdateControllerList([]);
+            _diagnostics.Flush(scanStarted);
             return;
         }
         try
@@ -209,24 +229,41 @@ internal sealed unsafe class ControllerService : IDisposable
                 var vendor = SdlNative.GetGamepadVendorForId(instanceId);
                 var product = SdlNative.GetGamepadProductForId(instanceId);
                 var key = string.IsNullOrWhiteSpace(path) ? $"{vendor:X4}:{product:X4}:{name}:{instanceId}" : path;
-                options.Add(new ControllerOption(key, instanceId, count > 1 ? $"{name}  [{vendor:X4}:{product:X4}]" : name));
+                options.Add(new ControllerOption(key, instanceId, count > 1 ? $"{name}  [{vendor:X4}:{product:X4}]" : name)
+                    { VendorId = vendor, ProductId = product });
             }
             UpdateControllerList(options);
 
-            lock (_gate) if (_gamepad != 0) return;
+            lock (_gate)
+            {
+                if (_gamepad != 0)
+                {
+                    _diagnostics.Decision("already_connected_skip_selection", _preferredController, null, _instanceId);
+                    return;
+                }
+            }
             var selected = Choose(options);
             if (selected is null) return;
+            var attempt = ++_openAttempt;
+            var openStarted = AppLog.Enabled ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+            if (AppLog.Enabled) AppLog.Debug($"open-begin attempt={attempt} instance={selected.InstanceId} path={selected.Id}");
             var gamepad = SdlNative.OpenGamepad(selected.InstanceId);
+            // Capture the thread-local SDL error immediately, before any other SDL call.
+            var error = gamepad == 0 ? SdlNative.Utf8(SdlNative.GetError()) : "";
+            if (AppLog.Enabled)
+                AppLog.Debug($"open-end attempt={attempt} instance={selected.InstanceId} success={gamepad != 0} duration_ms={ConnectionDiagnostics.Milliseconds(System.Diagnostics.Stopwatch.GetTimestamp() - openStarted):F3} error={error}");
             if (gamepad != 0) Connect(gamepad, selected);
         }
-        finally { SdlNative.Free(ids); }
+        finally { SdlNative.Free(ids); _diagnostics.Flush(scanStarted); }
     }
 
     private ControllerOption? Choose(List<ControllerOption> options)
     {
         string preferred;
         lock (_gate) preferred = _preferredController;
-        return ChoosePreferred(options, preferred);
+        var selected = ChoosePreferred(options, preferred);
+        _diagnostics.Decision(ConnectionDiagnostics.SelectionReason(options, preferred, selected), preferred, selected);
+        return selected;
     }
 
     internal static ControllerOption? ChoosePreferred(List<ControllerOption> options, string preferred)
@@ -238,7 +275,7 @@ internal sealed unsafe class ControllerService : IDisposable
             var retro = options.Where(x => IsRetroNintendo(x.Name)).ToArray();
             if (retro.Length == 1)
             {
-                AppLog.Info($"preferred device path changed; reconnecting to {retro[0].Name}");
+                // The diagnostic decision identifies this as a name-based, unverified fallback.
                 return retro[0];
             }
             return null;
@@ -257,6 +294,7 @@ internal sealed unsafe class ControllerService : IDisposable
             changed = _controllers.Count != options.Count || !_controllers.Select(x => (x.Id, x.Name)).SequenceEqual(options.Select(x => (x.Id, x.Name)));
             if (changed) _controllers = options;
         }
+        _diagnostics.Inventory(options);
         if (changed) ControllersChanged?.Invoke();
         if (changed) AppLog.Debug($"controller list changed: {options.Count} device(s)");
     }
@@ -277,12 +315,13 @@ internal sealed unsafe class ControllerService : IDisposable
             _instanceId = SdlNative.GetGamepadId(gamepad);
             _connectedKey = option.Id;
             _name = option.Name;
+            _diagnostics.NewConnection();
         }
         Volatile.Write(ref _reconnectUntilUtcTicks, 0);
         Interlocked.Exchange(ref _reconnectCompletionSent, 1);
         StatusChanged?.Invoke(ControllerName);
         ReconnectStateChanged?.Invoke("接続しました");
-        AppLog.Info($"connected: {option.Name}; id={option.Id}; instance={_instanceId}");
+        AppLog.Info($"connected: {option.Name}; id={option.Id}; instance={_instanceId}; stage=handle_open input_confirmed=false");
     }
 
     private void DisconnectLocked()
