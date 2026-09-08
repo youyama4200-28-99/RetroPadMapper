@@ -14,13 +14,14 @@ internal sealed class MainForm : Form
     private readonly ComboBox _controllers = new();
     private readonly CheckBox _enabled = new();
     private readonly CheckBox _autoStart = new();
+    private readonly CheckBox _debugMode = new();
     private readonly CheckBox _showIndicator = new();
     private readonly CheckBox _indicatorTopMost = new();
     private readonly ComboBox _indicatorStyle = new();
     private readonly Label _indicatorImageName = new();
     private readonly TableLayoutPanel _mappingTable = new();
     private readonly Dictionary<PadButton, ComboBox> _mappingCombos = [];
-    private readonly System.Windows.Forms.Timer _statusTimer = new() { Interval = 250 };
+    private readonly System.Windows.Forms.Timer _statusTimer = new() { Interval = 100 };
     private bool _updatingControllers;
     private bool _updatingMappings;
     private bool _buildingUi = true;
@@ -208,7 +209,7 @@ internal sealed class MainForm : Form
                 _indicatorImageName.Text = Path.GetFileName(_settings.IndicatorImagePath);
                 _indicator.Indicator.AppearanceChanged(); Save();
             }
-            catch (Exception ex) { MessageBox.Show(ex.Message, "画像の読み込みに失敗", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            catch (Exception ex) { AppLog.Error("custom indicator image import failed", ex); MessageBox.Show(ex.Message, "画像の読み込みに失敗", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         };
         var appearance = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
         appearance.Controls.Add(new Label { Text = "プレビュー外観", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(3, 7, 6, 3) });
@@ -217,9 +218,22 @@ internal sealed class MainForm : Form
         _autoStart.CheckedChanged += (_, _) =>
         {
             try { AutoStartService.SetEnabled(_autoStart.Checked); }
-            catch (Exception ex) { MessageBox.Show(ex.Message, "自動起動の設定に失敗", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            catch (Exception ex) { AppLog.Error("auto-start setting failed", ex); MessageBox.Show(ex.Message, "自動起動の設定に失敗", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         };
-        flow.Controls.Add(_showIndicator); flow.Controls.Add(_indicatorTopMost); flow.Controls.Add(appearance); flow.Controls.Add(_autoStart);
+        _debugMode.Text = "デバッグモード（診断ログを出力）";
+        _debugMode.AutoSize = true; _debugMode.Checked = _settings.DebugMode;
+        _debugMode.CheckedChanged += (_, _) =>
+        {
+            _settings.DebugMode = _debugMode.Checked;
+            AppLog.Configure(_settings.DebugMode);
+            Save();
+        };
+        var logs = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        var openLogs = new Button { Text = "ログフォルダーを開く", AutoSize = true };
+        openLogs.Click += (_, _) => AppLog.OpenDirectory();
+        logs.Controls.Add(openLogs);
+        logs.Controls.Add(new Label { Text = AppLog.DirectoryPath, AutoSize = true, Anchor = AnchorStyles.Left, ForeColor = SystemColors.GrayText, Margin = new Padding(8, 7, 3, 3) });
+        flow.Controls.Add(_showIndicator); flow.Controls.Add(_indicatorTopMost); flow.Controls.Add(appearance); flow.Controls.Add(_autoStart); flow.Controls.Add(_debugMode); flow.Controls.Add(logs);
         flow.Controls.Add(new Label
         {
             Text = "インジケータは入力処理とは別のUIタイマーで描画されるため、最前面表示を有効にしてもマッピング処理を待たせません。",

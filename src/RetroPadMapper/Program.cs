@@ -25,6 +25,9 @@ internal static class Program
             return DispatchLatencyBenchmark.Run(output);
         }
         ApplicationConfiguration.Initialize();
+        Application.ThreadException += (_, e) => AppLog.Error("UI thread exception", e.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => AppLog.Error("Unhandled exception", e.ExceptionObject as Exception);
+        TaskScheduler.UnobservedTaskException += (_, e) => { AppLog.Error("Unobserved task exception", e.Exception); e.SetObserved(); };
         using var context = new TrayApplicationContext();
         Application.Run(context);
         return 0;

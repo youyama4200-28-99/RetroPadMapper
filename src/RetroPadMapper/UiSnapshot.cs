@@ -8,7 +8,7 @@ internal static class UiSnapshot
         {
             Directory.CreateDirectory(outputDirectory);
             ApplicationConfiguration.Initialize();
-            var settings = new AppSettings();
+            var settings = new AppSettings { DebugMode = true };
             using var controller = new ControllerService();
             using var form = new MainForm(settings, new SettingsStore(), controller)
             {
@@ -51,6 +51,20 @@ internal static class UiSnapshot
                 using var bitmap = new Bitmap(indicator.Width, indicator.Height);
                 indicator.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
                 bitmap.Save(Path.Combine(outputDirectory, $"indicator-{style.ToString().ToLowerInvariant()}.png"));
+            }
+            settings.IndicatorStyle = IndicatorStyle.Famicom;
+            using (var indicatorWindow = new IndicatorForm(controller, settings)
+            {
+                StartPosition = FormStartPosition.Manual,
+                Location = new Point(-32000, -32000)
+            })
+            {
+                indicatorWindow.Show();
+                Application.DoEvents();
+                using var windowBitmap = new Bitmap(indicatorWindow.Width, indicatorWindow.Height);
+                indicatorWindow.DrawToBitmap(windowBitmap, new Rectangle(Point.Empty, windowBitmap.Size));
+                windowBitmap.Save(Path.Combine(outputDirectory, "indicator-window.png"));
+                indicatorWindow.Hide();
             }
             form.Hide();
             return 0;

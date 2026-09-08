@@ -38,12 +38,18 @@ internal sealed unsafe class ControllerService : IDisposable
 
     public bool Start()
     {
+        SdlNative.SetHint("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
         if (!SdlNative.Init(SdlNative.InitGamepad)) return false;
         // No SDL event loop is running in this WinForms application. Event watches only
         // receive gamepad input when that loop is pumped, so use SDL's thread-safe snapshot
         // API on a dedicated high-resolution worker instead.
-        SdlNative.SetGamepadEventsEnabled(false);
+        SdlNative.SetGamepadEventsEnabled(true);
+        SdlNative.SetEventEnabled(SdlNative.EventGamepadAxisMotion, false);
+        SdlNative.SetEventEnabled(SdlNative.EventGamepadButtonDown, false);
+        SdlNative.SetEventEnabled(SdlNative.EventGamepadButtonUp, false);
         _loop = Task.Factory.StartNew(ScanLoop, _stop.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        AppLog.Info("controller service started; background events enabled");
+        _scanSignal.Set();
         return true;
     }
 
@@ -79,7 +85,16 @@ internal sealed unsafe class ControllerService : IDisposable
     public void PumpHotplugEvents()
     {
         if (_disposed || _loop is null) return;
-        SdlNative.PumpEvents();
+        var changed = false;
+        while (SdlNative.PollEvent(out var evt))
+        {
+            if (IsHotplugEvent(evt.Type))
+            {
+                changed = true;
+                AppLog.Debug($"SDL device event type=0x{evt.Type:X} instance={evt.Which}");
+            }
+        }
+        if (changed) _scanSignal.Set();
     }
 
     public Task RequestReconnectAsync()
@@ -88,13 +103,21 @@ internal sealed unsafe class ControllerService : IDisposable
         Volatile.Write(ref _reconnectUntilUtcTicks, DateTime.UtcNow.AddSeconds(15).Ticks);
         Interlocked.Exchange(ref _reconnectCompletionSent, 0);
         ReconnectStateChanged?.Invoke("再接続待機中 — コントローラーのボタンを1秒ほど押してください");
+        AppLog.Info("reconnect requested");
         _scanSignal.Set();
         return Task.Run(() =>
         {
-            var originalPriority = Thread.CurrentThread.Priority;
-            try { Thread.CurrentThread.Priority = ThreadPriority.BelowNormal; BluetoothDiscovery.Probe(); }
-            catch { }
-            finally { Thread.CurrentThread.Priority = originalPriority; _scanSignal.Set(); }
+            try
+            {
+                while (!_stop.IsCancellationRequested && DateTime.UtcNow.Ticks < Volatile.Read(ref _reconnectUntilUtcTicks) && ConnectedControllerId.Length == 0)
+                {
+                    BluetoothDiscovery.Probe();
+                    _scanSignal.Set();
+                    if (_stop.Token.WaitHandle.WaitOne(350)) break;
+                }
+            }
+            catch (Exception ex) { AppLog.Error("Bluetooth reconnect probe failed", ex); }
+            finally { _scanSignal.Set(); }
         });
     }
 
@@ -126,7 +149,7 @@ internal sealed unsafe class ControllerService : IDisposable
                 }
                 else if (_scanSignal.WaitOne(reconnecting ? 50 : 250)) nextScan = 0;
             }
-            catch { lock (_gate) DisconnectLocked(); _scanSignal.WaitOne(250); nextScan = 0; }
+            catch (Exception ex) { AppLog.Error("controller scan loop failed", ex); lock (_gate) DisconnectLocked(); _scanSignal.WaitOne(250); nextScan = 0; }
         }
     }
 
@@ -167,6 +190,7 @@ internal sealed unsafe class ControllerService : IDisposable
 
     private unsafe void Scan()
     {
+        SdlNative.UpdateGamepads();
         var ids = SdlNative.GetGamepads(out var count);
         if (ids == 0)
         {
@@ -202,9 +226,28 @@ internal sealed unsafe class ControllerService : IDisposable
     {
         string preferred;
         lock (_gate) preferred = _preferredController;
-        if (preferred.Length > 0) return options.FirstOrDefault(x => x.Id == preferred);
+        return ChoosePreferred(options, preferred);
+    }
+
+    internal static ControllerOption? ChoosePreferred(List<ControllerOption> options, string preferred)
+    {
+        if (preferred.Length > 0)
+        {
+            var exact = options.FirstOrDefault(x => x.Id == preferred);
+            if (exact is not null) return exact;
+            var retro = options.Where(x => IsRetroNintendo(x.Name)).ToArray();
+            if (retro.Length == 1)
+            {
+                AppLog.Info($"preferred device path changed; reconnecting to {retro[0].Name}");
+                return retro[0];
+            }
+            return null;
+        }
         return options.FirstOrDefault(x => IsRetroNintendo(x.Name)) ?? options.FirstOrDefault();
     }
+
+    internal static bool IsHotplugEvent(uint type) =>
+        type is SdlNative.EventGamepadAdded or SdlNative.EventGamepadRemoved or SdlNative.EventGamepadRemapped;
 
     private void UpdateControllerList(List<ControllerOption> options)
     {
@@ -215,9 +258,10 @@ internal sealed unsafe class ControllerService : IDisposable
             if (changed) _controllers = options;
         }
         if (changed) ControllersChanged?.Invoke();
+        if (changed) AppLog.Debug($"controller list changed: {options.Count} device(s)");
     }
 
-    private static bool IsRetroNintendo(string name) =>
+    internal static bool IsRetroNintendo(string name) =>
         name.Contains("NES", StringComparison.OrdinalIgnoreCase) ||
         name.Contains("Famicom", StringComparison.OrdinalIgnoreCase) ||
         name.Contains("HVC Controller", StringComparison.OrdinalIgnoreCase) ||
@@ -238,10 +282,12 @@ internal sealed unsafe class ControllerService : IDisposable
         Interlocked.Exchange(ref _reconnectCompletionSent, 1);
         StatusChanged?.Invoke(ControllerName);
         ReconnectStateChanged?.Invoke("接続しました");
+        AppLog.Info($"connected: {option.Name}; id={option.Id}; instance={_instanceId}");
     }
 
     private void DisconnectLocked()
     {
+        var disconnectedName = _name;
         _emitter.ReleaseAll();
         Volatile.Write(ref _pressedButtons, 0);
         if (_gamepad != 0) SdlNative.CloseGamepad(_gamepad);
@@ -250,6 +296,7 @@ internal sealed unsafe class ControllerService : IDisposable
         _connectedKey = "";
         _name = "未接続";
         StatusChanged?.Invoke(_name);
+        if (disconnectedName != "未接続") AppLog.Info($"disconnected: {disconnectedName}");
     }
 
     public void Dispose()

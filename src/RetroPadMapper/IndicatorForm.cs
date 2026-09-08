@@ -5,9 +5,10 @@ internal sealed class IndicatorForm : Form
     internal IndicatorForm(ControllerService controller, AppSettings settings)
     {
         Text = "RetroPad Mapper — 入力インジケータ";
-        ClientSize = new Size(680, 300);
-        MinimumSize = new Size(520, 260);
+        AutoScaleMode = AutoScaleMode.Dpi;
+        ClientSize = new Size(720, 330);
         FormBorderStyle = FormBorderStyle.SizableToolWindow;
+        MinimumSize = SizeFromClientSize(new Size(560, 275));
         ShowInTaskbar = false;
         TopMost = settings.IndicatorTopMost;
         Controls.Add(new FamicomIndicatorControl(controller, settings) { Dock = DockStyle.Fill });

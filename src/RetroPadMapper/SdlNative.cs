@@ -10,6 +10,7 @@ internal static partial class SdlNative
     internal const uint EventGamepadButtonUp = 0x652;
     internal const uint EventGamepadAdded = 0x653;
     internal const uint EventGamepadRemoved = 0x654;
+    internal const uint EventGamepadRemapped = 0x655;
 
     [StructLayout(LayoutKind.Explicit, Size = 128)]
     internal struct SdlEvent
@@ -28,6 +29,10 @@ internal static partial class SdlNative
     [LibraryImport("SDL3", EntryPoint = "SDL_Init")]
     [return: MarshalAs(UnmanagedType.I1)]
     internal static partial bool Init(uint flags);
+
+    [LibraryImport("SDL3", EntryPoint = "SDL_SetHint", StringMarshalling = StringMarshalling.Utf8)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    internal static partial bool SetHint(string name, string value);
 
     [LibraryImport("SDL3", EntryPoint = "SDL_Quit")]
     internal static partial void Quit();
@@ -72,6 +77,13 @@ internal static partial class SdlNative
 
     [LibraryImport("SDL3", EntryPoint = "SDL_PumpEvents")]
     internal static partial void PumpEvents();
+
+    [LibraryImport("SDL3", EntryPoint = "SDL_PollEvent")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    internal static partial bool PollEvent(out SdlEvent evt);
+
+    [LibraryImport("SDL3", EntryPoint = "SDL_SetEventEnabled")]
+    internal static partial void SetEventEnabled(uint type, [MarshalAs(UnmanagedType.I1)] bool enabled);
 
     [LibraryImport("SDL3", EntryPoint = "SDL_SetGamepadEventsEnabled")]
     internal static partial void SetGamepadEventsEnabled([MarshalAs(UnmanagedType.I1)] bool enabled);

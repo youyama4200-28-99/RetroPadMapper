@@ -9,6 +9,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
     public TrayApplicationContext()
     {
         var store = new SettingsStore(); var settings = store.Load();
+        AppLog.Configure(settings.DebugMode);
+        AppLog.Info("application starting");
         _controller.Configure(settings);
         _form = new MainForm(settings, store, _controller);
         var menu = new ContextMenuStrip();
@@ -26,5 +28,5 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void ShowWindow() { _form.Show(); _form.WindowState = FormWindowState.Normal; _form.Activate(); }
     private void Exit() { _tray.Visible = false; _form.AllowClose(); ExitThread(); }
-    protected override void Dispose(bool disposing) { if (disposing) { _tray.Dispose(); _controller.Dispose(); _form.Dispose(); } base.Dispose(disposing); }
+    protected override void Dispose(bool disposing) { if (disposing) { _tray.Dispose(); _controller.Dispose(); _form.Dispose(); AppLog.Info("application stopped"); AppLog.Shutdown(); } base.Dispose(disposing); }
 }

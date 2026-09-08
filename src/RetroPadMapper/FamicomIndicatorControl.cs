@@ -33,7 +33,10 @@ internal sealed class FamicomIndicatorControl : Control
     {
         base.OnPaint(e);
         var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
-        var scale = Math.Min(ClientSize.Width / CanvasWidth, ClientSize.Height / CanvasHeight);
+        const float safeInset = 8;
+        var availableWidth = Math.Max(1, ClientSize.Width - safeInset * 2);
+        var availableHeight = Math.Max(1, ClientSize.Height - safeInset * 2);
+        var scale = Math.Min(availableWidth / CanvasWidth, availableHeight / CanvasHeight);
         g.TranslateTransform((ClientSize.Width - CanvasWidth * scale) / 2, (ClientSize.Height - CanvasHeight * scale) / 2);
         g.ScaleTransform(scale, scale);
 

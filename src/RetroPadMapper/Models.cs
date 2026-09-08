@@ -26,6 +26,7 @@ internal sealed class AppSettings
 {
     public bool MappingEnabled { get; set; } = true;
     public bool StartMinimized { get; set; }
+    public bool DebugMode { get; set; }
     public string PreferredController { get; set; } = "";
     public bool ShowIndicator { get; set; } = true;
     public bool IndicatorTopMost { get; set; }
