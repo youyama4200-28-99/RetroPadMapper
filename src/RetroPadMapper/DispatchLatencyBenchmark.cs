@@ -13,13 +13,12 @@ internal static class DispatchLatencyBenchmark
     {
         Directory.CreateDirectory(outputDirectory);
         var pollingQueue = new ConcurrentQueue<Arrival>();
-        var eventQueue = new ConcurrentQueue<Arrival>();
-        using var signal = new AutoResetEvent(false);
+        var oneMillisecondQueue = new ConcurrentQueue<Arrival>();
         using var start = new ManualResetEventSlim(false);
         var pollingUs = new double[SampleCount];
-        var eventUs = new double[SampleCount];
+        var oneMillisecondUs = new double[SampleCount];
         Array.Fill(pollingUs, double.NaN);
-        Array.Fill(eventUs, double.NaN);
+        Array.Fill(oneMillisecondUs, double.NaN);
         var producerDone = 0;
 
         var poller = new Thread(() =>
@@ -32,18 +31,19 @@ internal static class DispatchLatencyBenchmark
             }
         }) { IsBackground = true, Priority = ThreadPriority.AboveNormal, Name = "8 ms polling control" };
 
-        var watcher = new Thread(() =>
+        var oneMillisecondPoller = new Thread(() =>
         {
             start.Wait();
-            while (Volatile.Read(ref producerDone) == 0 || !eventQueue.IsEmpty)
+            using var timer = new HighResolutionPeriodicTimer(1);
+            while (Volatile.Read(ref producerDone) == 0 || !oneMillisecondQueue.IsEmpty)
             {
-                signal.WaitOne(100);
-                Drain(eventQueue, eventUs);
+                timer.WaitHandle.WaitOne();
+                Drain(oneMillisecondQueue, oneMillisecondUs);
             }
-        }) { IsBackground = true, Priority = ThreadPriority.AboveNormal, Name = "event-driven candidate" };
+        }) { IsBackground = true, Priority = ThreadPriority.AboveNormal, Name = "1 ms high-resolution polling candidate" };
 
         poller.Start();
-        watcher.Start();
+        oneMillisecondPoller.Start();
         start.Set();
         var intervalTicks = Math.Max(1L, Stopwatch.Frequency / 4000L);
         var next = Stopwatch.GetTimestamp();
@@ -52,21 +52,19 @@ internal static class DispatchLatencyBenchmark
             while (Stopwatch.GetTimestamp() < next) Thread.SpinWait(16);
             var arrival = new Arrival(i, Stopwatch.GetTimestamp());
             pollingQueue.Enqueue(arrival);
-            eventQueue.Enqueue(arrival);
-            signal.Set();
+            oneMillisecondQueue.Enqueue(arrival);
             next += intervalTicks;
         }
         Volatile.Write(ref producerDone, 1);
-        signal.Set();
         poller.Join(5000);
-        watcher.Join(5000);
+        oneMillisecondPoller.Join(5000);
 
         var pollStats = Stats(pollingUs);
-        var eventStats = Stats(eventUs);
-        var passed = pollStats.Count == SampleCount && eventStats.Count == SampleCount && eventStats.P95 < pollStats.P95;
-        WriteCsv(Path.Combine(outputDirectory, "latency-samples.csv"), pollingUs, eventUs);
-        WriteReport(Path.Combine(outputDirectory, "RESULTS.md"), pollStats, eventStats, passed);
-        Console.WriteLine($"8 ms polling p95={pollStats.P95:F3} us; event p95={eventStats.P95:F3} us; pass={passed}");
+        var oneMillisecondStats = Stats(oneMillisecondUs);
+        var passed = pollStats.Count == SampleCount && oneMillisecondStats.Count == SampleCount && oneMillisecondStats.P95 < pollStats.P95;
+        WriteCsv(Path.Combine(outputDirectory, "latency-samples.csv"), pollingUs, oneMillisecondUs);
+        WriteReport(Path.Combine(outputDirectory, "RESULTS.md"), pollStats, oneMillisecondStats, passed);
+        Console.WriteLine($"8 ms polling p95={pollStats.P95:F3} us; 1 ms high-resolution polling p95={oneMillisecondStats.P95:F3} us; pass={passed}");
         return passed ? 0 : 4;
     }
 
@@ -83,16 +81,16 @@ internal static class DispatchLatencyBenchmark
         return (values.Length, At(.50), At(.95), At(.99), values.Length == 0 ? double.NaN : values[^1]);
     }
 
-    private static void WriteCsv(string path, double[] polling, double[] eventDriven)
+    private static void WriteCsv(string path, double[] polling, double[] oneMillisecond)
     {
         using var writer = new StreamWriter(path, false, new System.Text.UTF8Encoding(false));
-        writer.WriteLine("sample_id,polling_8ms_us,event_driven_us");
+        writer.WriteLine("sample_id,polling_8ms_us,polling_high_resolution_1ms_us");
         for (var i = 0; i < SampleCount; i++)
-            writer.WriteLine(string.Create(CultureInfo.InvariantCulture, $"{i},{polling[i]:F3},{eventDriven[i]:F3}"));
+            writer.WriteLine(string.Create(CultureInfo.InvariantCulture, $"{i},{polling[i]:F3},{oneMillisecond[i]:F3}"));
     }
 
     private static void WriteReport(string path, (int Count, double P50, double P95, double P99, double Max) polling,
-        (int Count, double P50, double P95, double P99, double Max) eventDriven, bool passed)
+        (int Count, double P50, double P95, double P99, double Max) oneMillisecond, bool passed)
     {
         var lines = new[]
         {
@@ -106,9 +104,9 @@ internal static class DispatchLatencyBenchmark
             "| Strategy | n | p50 (µs) | p95 (µs) | p99 (µs) | max (µs) |",
             "|---|---:|---:|---:|---:|---:|",
             $"| Previous 8 ms polling | {polling.Count} | {polling.P50:F3} | {polling.P95:F3} | {polling.P99:F3} | {polling.Max:F3} |",
-            $"| Event signal | {eventDriven.Count} | {eventDriven.P50:F3} | {eventDriven.P95:F3} | {eventDriven.P99:F3} | {eventDriven.Max:F3} |",
+            $"| 1 ms high-resolution polling | {oneMillisecond.Count} | {oneMillisecond.P50:F3} | {oneMillisecond.P95:F3} | {oneMillisecond.P99:F3} | {oneMillisecond.Max:F3} |",
             "",
-            $"**Predeclared check:** event p95 < polling p95 and both paths captured all samples — **{(passed ? "PASS" : "FAIL")}**.",
+            $"**Predeclared check:** 1 ms high-resolution polling p95 < 8 ms polling p95 and both paths captured all samples — **{(passed ? "PASS" : "FAIL")}**.",
             "",
             "This isolates scheduler/dispatch delay; it does not measure Bluetooth radio latency, controller firmware, SDL's HID backend, or a target game's input sampling. Raw paired observations are in `latency-samples.csv`.",
         };

@@ -1,15 +1,18 @@
-using System.Runtime.InteropServices;
-
 namespace RetroPadMapper;
 
 internal sealed unsafe class ControllerService : IDisposable
 {
+    private static readonly PadButton[] InputButtons =
+    [
+        PadButton.A, PadButton.B, PadButton.X, PadButton.Y, PadButton.Select, PadButton.Home,
+        PadButton.Start, PadButton.L, PadButton.R, PadButton.Up, PadButton.Down, PadButton.Left, PadButton.Right
+    ];
+
     private readonly InputEmitter _emitter = new();
     private readonly LatencyRecorder _latency = new();
     private readonly CancellationTokenSource _stop = new();
     private readonly AutoResetEvent _scanSignal = new(false);
     private readonly object _gate = new();
-    private readonly SdlNative.EventFilter _eventFilter;
     private Dictionary<PadButton, OutputBinding> _bindings = [];
     private List<ControllerOption> _controllers = [];
     private bool _enabled;
@@ -23,9 +26,6 @@ internal sealed unsafe class ControllerService : IDisposable
     private long _reconnectUntilUtcTicks;
     private int _reconnectCompletionSent;
     private Task? _loop;
-    private GCHandle _selfHandle;
-
-    public ControllerService() => _eventFilter = EventWatch;
 
     public event Action<string>? StatusChanged;
     public event Action? ControllersChanged;
@@ -39,14 +39,10 @@ internal sealed unsafe class ControllerService : IDisposable
     public bool Start()
     {
         if (!SdlNative.Init(SdlNative.InitGamepad)) return false;
-        SdlNative.SetGamepadEventsEnabled(true);
-        _selfHandle = GCHandle.Alloc(this);
-        if (!SdlNative.AddEventWatch(_eventFilter, GCHandle.ToIntPtr(_selfHandle)))
-        {
-            _selfHandle.Free();
-            SdlNative.Quit();
-            return false;
-        }
+        // No SDL event loop is running in this WinForms application. Event watches only
+        // receive gamepad input when that loop is pumped, so use SDL's thread-safe snapshot
+        // API on a dedicated high-resolution worker instead.
+        SdlNative.SetGamepadEventsEnabled(false);
         _loop = Task.Factory.StartNew(ScanLoop, _stop.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         return true;
     }
@@ -104,23 +100,68 @@ internal sealed unsafe class ControllerService : IDisposable
 
     private void ScanLoop()
     {
-        Thread.CurrentThread.Priority = ThreadPriority.BelowNormal;
+        Thread.CurrentThread.Priority = ThreadPriority.AboveNormal;
+        using var inputTimer = new HighResolutionPeriodicTimer(1);
+        WaitHandle[] connectedWaits = [inputTimer.WaitHandle, _scanSignal];
+        var nextScan = 0L;
         while (!_stop.IsCancellationRequested)
         {
             try
             {
-                lock (_gate)
+                var connected = PollGamepad();
+                var now = Environment.TickCount64;
+                if (!connected || now >= nextScan)
                 {
-                    if (_gamepad != 0 && !SdlNative.GamepadConnected(_gamepad)) DisconnectLocked();
+                    Scan();
+                    connected = ConnectedControllerId.Length != 0;
+                    nextScan = now + 2000;
                 }
-                Scan();
                 var reconnecting = DateTime.UtcNow.Ticks < Volatile.Read(ref _reconnectUntilUtcTicks);
                 if (!reconnecting && Interlocked.CompareExchange(ref _reconnectCompletionSent, 1, 0) == 0 &&
                     Volatile.Read(ref _reconnectUntilUtcTicks) != 0 && ConnectedControllerId.Length == 0)
                     ReconnectStateChanged?.Invoke("未検出です。HOMEまたはSTARTを押してから、もう一度お試しください");
-                _scanSignal.WaitOne(reconnecting ? 250 : 2000);
+                if (connected)
+                {
+                    if (WaitHandle.WaitAny(connectedWaits) == 1) nextScan = 0;
+                }
+                else if (_scanSignal.WaitOne(reconnecting ? 50 : 250)) nextScan = 0;
             }
-            catch { lock (_gate) DisconnectLocked(); _scanSignal.WaitOne(500); }
+            catch { lock (_gate) DisconnectLocked(); _scanSignal.WaitOne(250); nextScan = 0; }
+        }
+    }
+
+    private bool PollGamepad()
+    {
+        lock (_gate)
+        {
+            if (_gamepad == 0) return false;
+            SdlNative.UpdateGamepads();
+            if (!SdlNative.GamepadConnected(_gamepad))
+            {
+                DisconnectLocked();
+                return false;
+            }
+
+            var sampledAt = SdlNative.GetTicksNs();
+            var nextMask = 0;
+            foreach (var button in InputButtons)
+                if (SdlNative.GetGamepadButton(_gamepad, (int)button)) nextMask |= 1 << (int)button;
+
+            var previousMask = Volatile.Read(ref _pressedButtons);
+            var changed = previousMask ^ nextMask;
+            if (changed == 0) return true;
+            Volatile.Write(ref _pressedButtons, nextMask);
+
+            foreach (var button in InputButtons)
+            {
+                var bit = 1 << (int)button;
+                if ((changed & bit) == 0 || !_enabled || !_bindings.TryGetValue(button, out var output) || output is null) continue;
+                var pressed = (nextMask & bit) != 0;
+                var beforeEmit = SdlNative.GetTicksNs();
+                _emitter.Set(output, pressed);
+                _latency.Record(sampledAt, beforeEmit, SdlNative.GetTicksNs());
+            }
+            return true;
         }
     }
 
@@ -198,43 +239,6 @@ internal sealed unsafe class ControllerService : IDisposable
         ReconnectStateChanged?.Invoke("接続しました");
     }
 
-    private static unsafe bool EventWatch(nint userdata, SdlNative.SdlEvent* evt)
-    {
-        if (evt == null) return true;
-        var handle = GCHandle.FromIntPtr(userdata);
-        if (handle.Target is not ControllerService service || service._disposed) return true;
-        if (evt->Type is SdlNative.EventGamepadAdded or SdlNative.EventGamepadRemoved)
-        {
-            service._scanSignal.Set();
-            return true;
-        }
-        if (evt->Type is not (SdlNative.EventGamepadButtonDown or SdlNative.EventGamepadButtonUp)) return true;
-        service.DispatchButton(evt->Which, evt->Button, evt->Type == SdlNative.EventGamepadButtonDown, evt->Timestamp);
-        return true;
-    }
-
-    private void DispatchButton(uint instanceId, byte buttonValue, bool pressed, ulong eventTimestamp)
-    {
-        OutputBinding? output;
-        lock (_gate)
-        {
-            if (_gamepad == 0 || instanceId != _instanceId) return;
-            UpdatePressed(buttonValue, pressed);
-            if (!_enabled || !_bindings.TryGetValue((PadButton)buttonValue, out output) || output is null) return;
-            var before = SdlNative.GetTicksNs();
-            _emitter.Set(output, pressed);
-            _latency.Record(eventTimestamp, before, SdlNative.GetTicksNs());
-        }
-    }
-
-    private void UpdatePressed(byte button, bool pressed)
-    {
-        if (button >= 31) return;
-        var bit = 1 << button;
-        if (pressed) Interlocked.Or(ref _pressedButtons, bit);
-        else Interlocked.And(ref _pressedButtons, ~bit);
-    }
-
     private void DisconnectLocked()
     {
         _emitter.ReleaseAll();
@@ -254,11 +258,6 @@ internal sealed unsafe class ControllerService : IDisposable
         _stop.Cancel();
         _scanSignal.Set();
         try { _loop?.Wait(1000); } catch { }
-        if (_selfHandle.IsAllocated)
-        {
-            SdlNative.RemoveEventWatch(_eventFilter, GCHandle.ToIntPtr(_selfHandle));
-            _selfHandle.Free();
-        }
         lock (_gate) DisconnectLocked();
         SdlNative.Quit();
         _scanSignal.Dispose();

@@ -4,8 +4,6 @@ namespace RetroPadMapper;
 
 internal static unsafe class SelfTest
 {
-    private static readonly SdlNative.EventFilter NoOpEventFilter = static (_, _) => true;
-
     public static int Run()
     {
         try
@@ -24,8 +22,8 @@ internal static unsafe class SelfTest
                 if (exports.Any(name => !System.Runtime.InteropServices.NativeLibrary.TryGetExport(sdl, name, out _))) return 8;
             }
             finally { System.Runtime.InteropServices.NativeLibrary.Free(sdl); }
-            if (!SdlNative.AddEventWatch(NoOpEventFilter, 0)) return 5;
-            SdlNative.RemoveEventWatch(NoOpEventFilter, 0);
+            using (var timer = new HighResolutionPeriodicTimer(1))
+                if (WaitHandle.WaitAny([timer.WaitHandle], 100) != 0) return 5;
             SdlNative.UpdateGamepads();
             SdlNative.Quit();
             return 0;
