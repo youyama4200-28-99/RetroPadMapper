@@ -16,9 +16,11 @@ internal sealed class MainForm : Form
     private readonly CheckBox _autoStart = new();
     private readonly CheckBox _showIndicator = new();
     private readonly CheckBox _indicatorTopMost = new();
+    private readonly ComboBox _indicatorStyle = new();
+    private readonly Label _indicatorImageName = new();
     private readonly TableLayoutPanel _mappingTable = new();
     private readonly Dictionary<PadButton, ComboBox> _mappingCombos = [];
-    private readonly System.Windows.Forms.Timer _statusTimer = new() { Interval = 1000 };
+    private readonly System.Windows.Forms.Timer _statusTimer = new() { Interval = 250 };
     private bool _updatingControllers;
     private bool _updatingMappings;
     private bool _buildingUi = true;
@@ -46,6 +48,7 @@ internal sealed class MainForm : Form
         RefreshControllerList();
         _statusTimer.Tick += (_, _) =>
         {
+            _controller.PumpHotplugEvents();
             _latency.Text = _controller.LatencySummary;
             RefreshControllerList();
         };
@@ -179,13 +182,44 @@ internal sealed class MainForm : Form
             _indicator.TopMost = _settings.IndicatorTopMost;
             Save();
         };
+        _indicatorStyle.DropDownStyle = ComboBoxStyle.DropDownList;
+        _indicatorStyle.Width = 180;
+        _indicatorStyle.Items.AddRange(["ファミコン", "NES", "汎用", "任意画像"]);
+        _indicatorStyle.SelectedIndex = (int)_settings.IndicatorStyle;
+        var chooseImage = new Button { Text = "画像を選択…", AutoSize = true, Enabled = _settings.IndicatorStyle == IndicatorStyle.CustomImage };
+        _indicatorImageName.AutoSize = true; _indicatorImageName.Anchor = AnchorStyles.Left;
+        _indicatorImageName.Text = string.IsNullOrWhiteSpace(_settings.IndicatorImagePath) ? "未選択" : Path.GetFileName(_settings.IndicatorImagePath);
+        _indicatorStyle.SelectedIndexChanged += (_, _) =>
+        {
+            if (_indicatorStyle.SelectedIndex < 0) return;
+            _settings.IndicatorStyle = (IndicatorStyle)_indicatorStyle.SelectedIndex;
+            chooseImage.Enabled = _settings.IndicatorStyle == IndicatorStyle.CustomImage;
+            _indicator.Indicator.AppearanceChanged(); Save();
+        };
+        chooseImage.Click += (_, _) =>
+        {
+            using var dialog = new OpenFileDialog { Filter = "画像ファイル|*.png;*.jpg;*.jpeg;*.bmp;*.gif", Title = "インジケータ画像を選択" };
+            if (dialog.ShowDialog(this) != DialogResult.OK) return;
+            try
+            {
+                _settings.IndicatorImagePath = _store.ImportIndicatorImage(dialog.FileName);
+                _settings.IndicatorStyle = IndicatorStyle.CustomImage;
+                _indicatorStyle.SelectedIndex = (int)IndicatorStyle.CustomImage;
+                _indicatorImageName.Text = Path.GetFileName(_settings.IndicatorImagePath);
+                _indicator.Indicator.AppearanceChanged(); Save();
+            }
+            catch (Exception ex) { MessageBox.Show(ex.Message, "画像の読み込みに失敗", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        };
+        var appearance = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        appearance.Controls.Add(new Label { Text = "プレビュー外観", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(3, 7, 6, 3) });
+        appearance.Controls.Add(_indicatorStyle); appearance.Controls.Add(chooseImage); appearance.Controls.Add(_indicatorImageName);
         _autoStart.Text = "Windowsログイン時に自動起動"; _autoStart.AutoSize = true; _autoStart.Checked = AutoStartService.IsEnabled();
         _autoStart.CheckedChanged += (_, _) =>
         {
             try { AutoStartService.SetEnabled(_autoStart.Checked); }
             catch (Exception ex) { MessageBox.Show(ex.Message, "自動起動の設定に失敗", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         };
-        flow.Controls.Add(_showIndicator); flow.Controls.Add(_indicatorTopMost); flow.Controls.Add(_autoStart);
+        flow.Controls.Add(_showIndicator); flow.Controls.Add(_indicatorTopMost); flow.Controls.Add(appearance); flow.Controls.Add(_autoStart);
         flow.Controls.Add(new Label
         {
             Text = "インジケータは入力処理とは別のUIタイマーで描画されるため、最前面表示を有効にしてもマッピング処理を待たせません。",

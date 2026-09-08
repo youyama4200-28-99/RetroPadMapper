@@ -78,6 +78,14 @@ internal sealed unsafe class ControllerService : IDisposable
 
     public void RefreshControllers() => _scanSignal.Set();
 
+    // SDL requires OS device events to be pumped on the thread that owns the UI loop.
+    // Button snapshots remain on the dedicated 1 ms worker.
+    public void PumpHotplugEvents()
+    {
+        if (_disposed || _loop is null) return;
+        SdlNative.PumpEvents();
+    }
+
     public Task RequestReconnectAsync()
     {
         lock (_gate) DisconnectLocked();

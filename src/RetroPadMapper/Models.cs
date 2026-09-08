@@ -9,6 +9,7 @@ internal enum PadButton
 }
 
 internal enum OutputKind { None, Key, MouseButton, MouseWheel }
+internal enum IndicatorStyle { Famicom, Nes, Generic, CustomImage }
 
 internal sealed record OutputBinding(OutputKind Kind, int Code, string Label)
 {
@@ -28,6 +29,8 @@ internal sealed class AppSettings
     public string PreferredController { get; set; } = "";
     public bool ShowIndicator { get; set; } = true;
     public bool IndicatorTopMost { get; set; }
+    public IndicatorStyle IndicatorStyle { get; set; } = IndicatorStyle.Famicom;
+    public string IndicatorImagePath { get; set; } = "";
     public int IndicatorX { get; set; } = -1;
     public int IndicatorY { get; set; } = -1;
     public Dictionary<PadButton, OutputBinding> Bindings { get; set; } = Defaults();

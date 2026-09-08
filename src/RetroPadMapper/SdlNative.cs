@@ -70,6 +70,9 @@ internal static partial class SdlNative
     [LibraryImport("SDL3", EntryPoint = "SDL_UpdateGamepads")]
     internal static partial void UpdateGamepads();
 
+    [LibraryImport("SDL3", EntryPoint = "SDL_PumpEvents")]
+    internal static partial void PumpEvents();
+
     [LibraryImport("SDL3", EntryPoint = "SDL_SetGamepadEventsEnabled")]
     internal static partial void SetGamepadEventsEnabled([MarshalAs(UnmanagedType.I1)] bool enabled);
 

@@ -32,12 +32,15 @@ internal static class UiSnapshot
                 form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
                 bitmap.Save(Path.Combine(outputDirectory, "display-settings.png"));
             }
-            using var indicator = new FamicomIndicatorControl(controller, settings) { Size = new Size(680, 275) };
+            using var indicator = new FamicomIndicatorControl(controller, settings) { Size = new Size(680, 300) };
             indicator.CreateControl();
-            using (var bitmap = new Bitmap(indicator.Width, indicator.Height))
+            foreach (var style in Enum.GetValues<IndicatorStyle>())
             {
+                settings.IndicatorStyle = style;
+                indicator.AppearanceChanged();
+                using var bitmap = new Bitmap(indicator.Width, indicator.Height);
                 indicator.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
-                bitmap.Save(Path.Combine(outputDirectory, "famicom-indicator.png"));
+                bitmap.Save(Path.Combine(outputDirectory, $"indicator-{style.ToString().ToLowerInvariant()}.png"));
             }
             form.Hide();
             return 0;

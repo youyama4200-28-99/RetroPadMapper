@@ -5,8 +5,8 @@ internal sealed class IndicatorForm : Form
     internal IndicatorForm(ControllerService controller, AppSettings settings)
     {
         Text = "RetroPad Mapper — 入力インジケータ";
-        ClientSize = new Size(680, 275);
-        MinimumSize = new Size(500, 225);
+        ClientSize = new Size(680, 300);
+        MinimumSize = new Size(520, 260);
         FormBorderStyle = FormBorderStyle.SizableToolWindow;
         ShowInTaskbar = false;
         TopMost = settings.IndicatorTopMost;
