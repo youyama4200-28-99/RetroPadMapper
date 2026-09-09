@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 
@@ -9,7 +10,22 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        if (args.Length > 0 && args[0] != "--ui-snapshot") Console.OutputEncoding = Encoding.UTF8;
+        // The regression fixture deliberately has no console, just like the GUI's child.
+        if (args.Length == 1 && args[0] == "--pipe-test") FreeConsole();
+        if (args.Length > 0 && args[0] != "--ui-snapshot")
+        {
+            // OutputEncoding invokes SetConsoleOutputCP, which fails for a headless WinExe.
+            // Configure the pipe writers themselves; never change a console code page.
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true });
+            Console.SetError(new StreamWriter(Console.OpenStandardError(), new UTF8Encoding(false)) { AutoFlush = true });
+        }
+        if (args.Length == 1 && args[0] == "--pipe-test")
+        {
+            if (GetConsoleOutputCP() != 0) return 24;
+            Console.WriteLine("入力確認：コンソールなし");
+            Console.Error.WriteLine("診断確認：標準エラー");
+            return 0;
+        }
         if (args.Length == 1 && args[0] == "--hang-test")
         {
             Console.WriteLine("{\"kind\":\"injected_hang\"}"); Console.Out.Flush();
@@ -40,12 +56,28 @@ internal static class Program
         return 0;
     }
 
+    [DllImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool FreeConsole();
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetConsoleOutputCP();
+
     private static int SelfTest()
     {
         try
         {
             if (!ProbeWorker.IsCandidate(0x057e, 0x2007) || ProbeWorker.IsCandidate(0x045e, 0x028e)) return 20;
             if (string.IsNullOrEmpty(SdlNative.Utf8(SdlNative.GetRevision()))) return 21;
+            using (var pipe = new ProbeRun("test", 1, Path.Combine(AppContext.BaseDirectory, "test-logs"), pipeTest: true))
+            {
+                var pipeDeadline = Environment.TickCount64 + 5000;
+                while (!pipe.Exited && Environment.TickCount64 < pipeDeadline) { pipe.CheckTimeout(); Thread.Sleep(25); }
+                if (!pipe.Exited || pipe.ExitCode != 0) return 25;
+                var lines = new List<string?>();
+                while (pipe.TryRead(out var line)) lines.Add(line);
+                if (!lines.Contains("入力確認：コンソールなし") || !lines.Contains("stderr: 診断確認：標準エラー")) return 26;
+            }
             using var run = new ProbeRun("test", 1, Path.Combine(AppContext.BaseDirectory, "test-logs"), silenceMs: 750, hangTest: true);
             var deadline = Environment.TickCount64 + 5000;
             while (!run.Exited && Environment.TickCount64 < deadline) { run.CheckTimeout(); Thread.Sleep(25); }

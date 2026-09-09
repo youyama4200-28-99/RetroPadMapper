@@ -15,12 +15,14 @@ internal sealed class ProbeRun : IDisposable
     private long _progress = Environment.TickCount64;
     private readonly int _seconds, _silenceMs;
     private bool _disposed;
+    private int _outputClosed, _errorClosed;
     internal string LogPath { get; }
     internal string? StopReason { get; private set; }
-    internal bool Exited => _process.HasExited;
+    // Process exit alone does not mean async pipe callbacks have delivered the final lines.
+    internal bool Exited => _process.HasExited && Volatile.Read(ref _outputClosed) != 0 && Volatile.Read(ref _errorClosed) != 0;
     internal int ExitCode => _process.ExitCode;
 
-    internal ProbeRun(string backend, int seconds, string directory, int silenceMs = 15000, bool hangTest = false)
+    internal ProbeRun(string backend, int seconds, string directory, int silenceMs = 15000, bool hangTest = false, bool pipeTest = false)
     {
         _seconds = seconds; _silenceMs = silenceMs;
         Directory.CreateDirectory(directory);
@@ -37,13 +39,20 @@ internal sealed class ProbeRun : IDisposable
         if (Path.GetFileNameWithoutExtension(host).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
             start.ArgumentList.Add(Assembly.GetExecutingAssembly().Location);
         if (hangTest) start.ArgumentList.Add("--hang-test");
+        else if (pipeTest) start.ArgumentList.Add("--pipe-test");
         else
         {
             start.ArgumentList.Add("--worker"); start.ArgumentList.Add(backend); start.ArgumentList.Add(seconds.ToString());
         }
         _process.StartInfo = start;
-        _process.OutputDataReceived += (_, e) => Receive(e.Data);
-        _process.ErrorDataReceived += (_, e) => Receive(e.Data is null ? null : $"stderr: {e.Data}");
+        _process.OutputDataReceived += (_, e) => {
+            if (e.Data is null) Volatile.Write(ref _outputClosed, 1);
+            else Receive(e.Data);
+        };
+        _process.ErrorDataReceived += (_, e) => {
+            if (e.Data is null) Volatile.Write(ref _errorClosed, 1);
+            else Receive($"stderr: {e.Data}");
+        };
         try
         {
             _process.Start();
